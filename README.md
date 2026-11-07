@@ -1,73 +1,65 @@
-# Aerial 视频整合工具 / Aerial video bundling toolkit
+# Aerial 定制桌面 · 雷鸟 / TCL 电视
 
-把本地视频打包进 [Aerial](https://github.com/pengchujin/aerial-tv)（`app.orchard.tv`）
-Android TV 桌面 APK 的小工具，外加一份对 Aerial `1.86-guard` 包结构的静态分析。
+适用于**雷鸟（FFALCON）**与 **TCL** 电视的定制版 Aerial 桌面。
+Aerial 是一个参照 tvOS 设计的 Android TV 桌面：没有广告，开机自动接管，主页即桌面。
 
-配套 App：[Aerial 管家 aerial-buddy](https://github.com/huli2008/aerial-buddy)
-（手机端扫码绑定、换壁纸、推送安装 Aerial）。
+本仓库提供适配这两类固件的 **guard 版**安装包。
 
-> 与 Aerial 作者无关，是非官方脚本集合。Aerial 本体以 MIT 协议发布。
+## 为什么需要 guard 版
 
-## 重要结论（请先读这段）
+雷鸟 / TCL 固件在 PackageManager 层做了限制：
 
-**把 mp4 放进 `assets/` 不会让影片出现在电视上。** Aerial 的设计是运行期收片：
-手机浏览器打开电视上的 Aerial 网页界面，视频经 `POST /api/videos/send` 传过去，
-落到内部的 `AerialVideos` 目录，再配一张 `poster.jpg`。代码里没有任何
-"从 APK assets 读取影片"的路径。
+- 直接 `adb install` 会失败，报 `INSTALL_FAILED_VERIFICATION_FAILURE`
+  或 `install apk has be disabled from pm by system default!`；
+- 安装器**拒绝声明了 HOME category 的 APK**。
 
-所以：
+普通版 Aerial 因为要接管主页键，必然声明 HOME，于是被 TCL 安装器挡掉。
+guard 版就是针对这个固件行为做的适配版本。
 
-- **只想让电视上有视频** → 走网页上传，几秒钟搞定，**不用重新打包、不用重新签名**，
-  详见 [`docs/analysis.md`](docs/analysis.md) 第 5 节。
-- **确实需要离线分发一个内置影片的 APK**（比如给不会用手机上传的人）→ 用本仓库的脚本，
-  但要接受下面的代价。
+## 适用机型
 
-## 重新打包的代价
-
-| 问题 | 说明 |
+| 机型 / 平台 | 状态 |
 |---|---|
-| **无法覆盖升级** | 上游用作者自己的 Android Debug 密钥签名，私钥不公开，重建包必然换签名。安装前必须先卸载旧版 Aerial，设置会被清空。 |
-| **必须 v2/v3 签名** | manifest 声明 `targetSdkVersion=34`，Android 11+ 只认 v1 签名会报 `INSTALL_PARSE_FAILED_NO_CERTIFICATES`。 |
-| **体积** | 4K H.264 影片很大。示例：5 个 4K 短片共 450 MB，成品 APK 453.5 MB。 |
-| **解码能力** | Aerial 界面自述推荐 1080p H.264；4K High@L5.2 在 MT5879 这类电视芯片上不一定流畅播放。 |
-| **仍然不会自动出现** | 即使影片就在包里，也还需要一段代码把它们复制到 `AerialVideos`。而 Aerial 的 DEX 方法体被剥离保护过，注入成本很高（见分析文档第 3 节）。 |
+| **雷鸟 FFALCON MT5879**（`tcl_mt5879_cn`，Android 11） | ✅ 实机已验证 |
+| **TCL m7642**（Android 9） | ✅ 实机已验证 |
+| 其他装了 Aerial 的 Android TV | ⚠️ 大部分可用；「推送安装」仅 TCL / 雷鸟系固件可用 |
 
-## 用法
+## 下载
 
-```bash
-python scripts/bundle_videos.py \
-    --apk   Aerial-1.86-guard-TCL-MT5879.apk \
-    --videos ./myvideos \
-    --out   aerial-unsigned.apk
-```
+**[⬇ Aerial-1.86-guard-TCL-MT5879.apk](https://github.com/huli2008/aerial-guard-tcl/releases/latest)**
 
-脚本会保留原包每一个条目的未压缩内容（逐字节一致），只删除 `META-INF` 下的 v1 签名文件，
-并把视频以 `ZIP_STORED`（不压缩）写入 `assets/videos/`。
+| 项 | 值 |
+|---|---|
+| 包名 | `app.orchard.tv` |
+| 版本 | `1.86-guard`（versionCode 118） |
+| 最低 / 目标 SDK | 21 / 34 |
+| 大小 | 3,159,168 字节 |
+| SHA-256 | `bb1e8bc6cab9478035b070f842c4ca37e5737b838e1771bde1e620f20fcd5e36` |
+| 签名 | v1 + v2，`CN=Android Debug`，指纹 `e08962dc…74d6685` |
 
-接着签名（PowerShell，需要 JDK 17）：
+## 安装
 
-```powershell
-# 详见 scripts/sign_apk.ps1
-java -jar uber-apk-signer-1.3.0.jar --apks aerial-unsigned.apk --overwrite `
-     --ks aerial.keystore --ksAlias aerial --ksPass YOURPASS --ksKeyPass YOURPASS
-```
+`adb install` 和 `pm install` 在雷鸟 / TCL 上都被固件禁用，所以要走电视自带的**「多屏互动」（T-Cast）**通道——
+它由系统以 system 身份安装，能绕过这两道限制。
 
-## 仓库结构
+两种方式：
 
-```
-scripts/bundle_videos.py   打包脚本（纯标准库，无第三方依赖）
-scripts/sign_apk.ps1       签名步骤与说明（zipalign + v1 + v2 + v3）
-docs/analysis.md           Aerial 1.86-guard 的静态结构分析
-```
+1. **用 [Aerial 管家 aerial-buddy](https://github.com/huli2008/aerial-buddy)（推荐）**
+   手机与电视同一 Wi-Fi → 扫描或扫码绑定 → 「安装 APK」选择本页下载的包 →
+   电视上按「右键 → 同意」即装。
+2. **手动走多屏互动**：电视上打开多屏互动，手机端选「投屏 / 安装应用」，把 APK 推过去。
 
-## 版权说明
+装完后在电视的应用列表里打开 Aerial，按提示把它设为默认桌面。
 
-本仓库**不包含** Aerial 的 APK、二进制或任何第三方影片素材。请自行从
-[官方 Releases](https://github.com/pengchujin/aerial-tv/releases) 获取 Aerial，
-并使用你有权使用的视频文件。修改后的包仅供个人使用，请遵守 Aerial 的 MIT 协议
-（保留版权声明）以及你所使用视频素材的授权条款。
+## 说明
 
-## 许可
+- 本包为**未修改的官方 guard 构建**，原样分发，便于校验与回退；没有加壳、没有改签名。
+- 因为是 Android Debug 签名，新版覆盖安装时若签名不一致，需要先卸载旧版。
+- 首次接管主页键后，如果系统仍跳回原桌面，请检查电视的「应用 → 默认应用」里
+  Aerial 是否被设为桌面。
 
-脚本部分以 MIT 协议发布，见 [LICENSE](LICENSE)。
-Aerial 本身版权归 [pengchujin](https://github.com/pengchujin) 所有，同样为 MIT 协议。
+## 致谢与许可
+
+Aerial 由 [pengchujin](https://github.com/pengchujin) 开发，以 **MIT** 协议发布：
+<https://github.com/pengchujin/aerial-tv>。本仓库仅针对雷鸟 / TCL 固件做分发与说明，
+不修改其源码。相关文档与脚本同样以 MIT 发布，见 [LICENSE](LICENSE)。
