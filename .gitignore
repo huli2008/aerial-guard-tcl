@@ -1,0 +1,8 @@
+﻿*.apk
+*.jks
+*.keystore
+*.mp4
+*.mov
+*.zip
+__pycache__/
+*.pyc
